@@ -8,6 +8,10 @@ const {
   updatePost,
   getAllPosts,
   getPostsByUser,
+  createTags,
+  getPostsByTagName,
+  addTagsToPost,
+  getPostById
 } = require('./index');
 
 async function dropTables() {
@@ -36,122 +40,35 @@ async function createTables() {
     await client.query(`
       CREATE TABLE users (
         id SERIAL PRIMARY KEY,
-        username varchar(255) UNIQUE NOT NULL,
-        password varchar(255) NOT NULL,
-        name varchar(255) NOT NULL,
-        location varchar(255) NOT NULL,
+        username VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        location VARCHAR(255) NOT NULL,
         active boolean DEFAULT true
       );
       CREATE TABLE posts (
         id SERIAL PRIMARY KEY,
         "authorId" INTEGER REFERENCES users(id),
-        title varchar(255) NOT NULL,
+        title VARCHAR(255) NOT NULL,
         content TEXT NOT NULL,
         active BOOLEAN DEFAULT true
       );
-      tags
-        id SERIAL PRIMARY KEY
+      CREATE TABLE tags (
+        id SERIAL PRIMARY KEY,
         name VARCHAR(255) UNIQUE NOT NULL
-
-      post_tags
-        "postId" INTEGER REFERENCES posts(id) UNIQUE NOT NULL
-        "tagId" INTEGER REFERENCES tags(id) UNIQUE NOT NULL
+      );
+      
+      CREATE TABLE post_tags (
+        "postId" INTEGER REFERENCES posts(id) NOT NULL,
+        "tagId" INTEGER REFERENCES tags(id) NOT NULL,
+        UNIQUE ("postId", "tagId")
+        );
+       
     `);
 
     console.log("Finished building tables!");
   } catch (error) {
     console.error("Error building tables!");
-    throw error;
-  }
-}
-
-async function createTags(taglist) {
-  if (tagList.length === 0) { 
-    return; 
-  }
-
-  // need something like: $1), ($2), ($3 
-  const insertValues = tagList.map(
-    (_, index) => `$${index + 1}`).join('), (');
-  // then we can use: (${ insertValues }) in our string template
-
-  // need something like $1, $2, $3
-  const selectValues = tagList.map(
-    (_, index) => `$${index + 1}`).join(', ');
-  // then we can use (${ selectValues }) in our string template
-
-  try {
-    await client.query(
-      `INSERT INTO tags(name)
-      VALUES ($1), ($2), ($3)
-      ON CONFLICT (name) DO NOTHING;
-      
-      SELECT * FROM tags
-      WHERE name
-      IN ($1, $2, $3);`
-    );
-    
-
-    // select all tags where the name is in our taglist
-    // return the rows from the query
-  } catch (error) {
-    throw error;
-  }
-}
-
-async function createPostTag(postId, tagId) {
-  try {
-    await client.query(`
-      INSERT INTO post_tags("postId", "tagId")
-      VALUES ($1, $2)
-      ON CONFLICT ("postId", "tagId") DO NOTHING;
-    `, [postId, tagId]);
-  } catch (error) {
-    throw error;
-  }
-}
-
-async function addTagsToPost(postId, tagList) {
-  try {
-    const createPostTagPromises = tagList.map(
-      tag => createPostTag(postId, tag.id)
-    );
-
-    await Promise.all(createPostTagPromises);
-
-    return await getPostById(postId);
-  } catch (error) {
-    throw error;
-  }
-}
-async function getPostById(postId) {
-  try {
-    const { rows: [ post ]  } = await client.query(`
-      SELECT *
-      FROM posts
-      WHERE id=$1;
-    `, [postId]);
-
-    const { rows: tags } = await client.query(`
-      SELECT tags.*
-      FROM tags
-      JOIN post_tags ON tags.id=post_tags."tagId"
-      WHERE post_tags."postId"=$1;
-    `, [postId])
-
-    const { rows: [author] } = await client.query(`
-      SELECT id, username, name, location
-      FROM users
-      WHERE id=$1;
-    `, [post.authorId])
-
-    post.tags = tags;
-    post.author = author;
-
-    delete post.authorId;
-
-    return post;
-  } catch (error) {
     throw error;
   }
 }
@@ -218,24 +135,6 @@ async function createInitialPosts() {
   }
 }
 
-async function getPostsByTagName(tagName) {
-  try {
-    const { rows: postIds } = await client.query(`
-      SELECT posts.id
-      FROM posts
-      JOIN post_tags ON posts.id=post_tags."postId"
-      JOIN tags ON tags.id=post_tags."tagId"
-      WHERE tags.name=$1;
-    `, [tagName]);
-
-    return await Promise.all(postIds.map(
-      post => getPostById(post.id)
-    ));
-  } catch (error) {
-    throw error;
-  }
-} 
-
 
 async function rebuildDB() {
   try {
@@ -290,7 +189,7 @@ async function testDB() {
     console.log("Calling getPostsByTagName with #happy");
     const postsWithHappy = await getPostsByTagName("#happy");
     console.log("Result:", postsWithHappy);
-    
+
     console.log("Finished database tests!");
   } catch (error) {
     console.log("Error during testDB");
